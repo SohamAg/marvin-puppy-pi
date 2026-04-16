@@ -3,27 +3,28 @@ from rclpy.node import Node
 from std_msgs.msg import Int8
 
 import pyaudio
-import numpy as np
-import threading
-import tensorflow as tf
 from collections import deque
-from scipy.signal import resample_poly
+import numpy as np
+import tensorflow as tf
+import threading
 from math import gcd
+
+from scipy.signal import resample_poly
 
 from pycoral.utils import edgetpu
 from pycoral.adapters import common
 from pycoral.adapters import classify
 
 # Configuration (Matching your hardware setup)
-TPU = 1
 FORMAT = pyaudio.paInt16
 CHANNEL = 1
 SAMPLE_RATE = 44100 
+DEV_INDEX = 0 
+
 WINDOW_LEN = 1 
 HOP_LEN = 0.1 
 WINDOW_SAMPLES = int(SAMPLE_RATE * WINDOW_LEN)
 HOP_SAMPLES = int(HOP_LEN * SAMPLE_RATE)
-DEV_INDEX = 0 
 
 # Model Configuration
 model_file = "models/wake_edgetpu.tflite"
@@ -48,6 +49,7 @@ class VoiceCommandPublisher(Node):
         self.window_buffer = deque(np.zeros(WINDOW_SAMPLES, dtype=np.int16), maxlen=WINDOW_SAMPLES)
         self.window_lock = threading.Lock()
         self.window_update = threading.Event()
+
         self.audio_clips = deque(maxlen=10)
         self.clips_lock = threading.Lock()
         self.clips_update = threading.Event()
@@ -91,7 +93,7 @@ class VoiceCommandPublisher(Node):
 
     def processor_loop(self):
         while self.running and rclpy.ok():
-            self.clips_update.wait(timeout=1.0)
+            self.clips_update.wait()
             self.clips_update.clear()
             
             current_clip = None
@@ -120,23 +122,27 @@ class VoiceCommandPublisher(Node):
     def process_audio(self, audio_data):
         # Resample 44100 -> 16000
         g = gcd(SAMPLE_RATE, 16000)
-        resampled = resample_poly(audio_data.astype(np.float64), 16000//g, SAMPLE_RATE//g).astype(np.int16)
+        up = 16000 // g
+        down = 44100 // g
+        resampled_data = resample_poly(audio_data.astype(np.float64), up, down).astype(np.int16)
         
-        # Pad/Clip to exactly 16000 samples
-        target = 16000
-        if len(resampled) < target:
-            resampled = np.pad(resampled, (0, target - len(resampled)))
-        else:
-            resampled = resampled[:target]
+        target_samples = 16000
+        front_padding = (target_samples - len(resampled_data)) // 2
+        back_padding = (target_samples - len(resampled_data)) - front_padding
+        padding = tf.constant([[front_padding,back_padding]])
+        padded_waveform = tf.pad(resampled_data, padding)
+        padded_waveform = tf.expand_dims(padded_waveform, 0)
 
         # Convert to Mel Spectrogram
-        tensor_audio = tf.convert_to_tensor(resampled, dtype=tf.float32)
-        tensor_audio = tf.expand_dims(tensor_audio, 0)
-        mel_spec = mel_layer(tensor_audio)
-        return tf.expand_dims(mel_spec, -1)
+        mel_spec = mel_layer(padded_waveform)
+        mel_spec = tf.expand_dims(mel_spec, -1) # Add channel dimension for CNN
+
+        return mel_spec
 
     def shutdown_node(self):
         self.running = False
+        self.window_update.set() # Unblock threads
+        self.clips_update.set()
         self.stream.stop_stream()
         self.stream.close()
         self.pya.terminate()
