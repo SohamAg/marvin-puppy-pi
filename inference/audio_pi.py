@@ -6,6 +6,7 @@ import time
 import tensorflow as tf
 import threading
 from math import gcd
+import socket
 
 from scipy.signal import resample_poly
 
@@ -58,6 +59,9 @@ mel_layer = tf.keras.layers.MelSpectrogram(
 # Paths to access inference library and model
 model_file = "models/wake_edgetpu.tflite"
 # lib_path = "/usr/local/lib/libedgetpu.1.dylib"
+
+HOST = "127.0.0.1"  # The server's hostname or IP address
+PORT = 65432  # The port used by the server
 
 labels_list = ['backward','bed','bird','cat','dog','down','eight','five','follow','forward','four',
                 'go','happy','house','learn','left','marvin','nine','no','off','on','one','right','seven',
@@ -206,8 +210,11 @@ class AudioProcessor:
         self.tpu_inference.invoke()
         classes = classify.get_classes(self.tpu_inference)
         if labels_list[classes[0].id] == "marvin":
-
           print("Voice detected. Start listening...")
+          with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((HOST, PORT))
+            s.sendall(b"Marv")
+
       else:
          input_details = self.model.get_input_details()
          output_details = self.model.get_output_details()
