@@ -122,47 +122,51 @@ with sd.RawInputStream(samplerate=16000, blocksize=512, dtype="int16",
     print("Listening for audio...")
 
     while True:
-        data = q.get()
-        
-        audio_int16 = np.frombuffer(data, np.int16)
-        audio_float32 = int2float(audio_int16)
-        audio_tensor = torch.frombuffer(audio_float32, dtype=torch.float32)
-        result = vad_iterator(audio_tensor, return_seconds=True)
+        try:
+            data = q.get()
+            
+            audio_int16 = np.frombuffer(data, np.int16)
+            audio_float32 = int2float(audio_int16)
+            audio_tensor = torch.frombuffer(audio_float32, dtype=torch.float32)
+            result = vad_iterator(audio_tensor, return_seconds=True)
 
-        if result:
-            if 'start' in result:
-                print(f"Speech started: {result['start']}s")
-                isSpeaking = True
-                speech_buffer = []
+            if result:
+                if 'start' in result:
+                    print(f"Speech started: {result['start']}s")
+                    isSpeaking = True
+                    speech_buffer = []
 
-            if 'end' in result:
-                print(f"Speech ended: {result['end']}s")
-                # Feed accumulated buffer to Vosk
-                full_audio = b"".join(speech_buffer)
+                if 'end' in result:
+                    print(f"Speech ended: {result['end']}s")
+                    # Feed accumulated buffer to Vosk
+                    full_audio = b"".join(speech_buffer)
 
-                key = ""
-                if recognizer.AcceptWaveform(full_audio):
-                    result = recognizer.Result()
-                    key = "text"
-                else:
-                    result = recognizer.PartialResult()
-                    key = "partial"
+                    key = ""
+                    if recognizer.AcceptWaveform(full_audio):
+                        result = recognizer.Result()
+                        key = "text"
+                    else:
+                        result = recognizer.PartialResult()
+                        key = "partial"
 
-                text = json.loads(result)[key]            
-                if text:
-                    print(f"{key}: {text}")
-                    # intent classification
-                    # INFERENCE
-                    pred = clf.predict([text])[0]
-                    print(f"{text} --> {pred}")
+                    text = json.loads(result)[key]            
+                    if text:
+                        print(f"{key}: {text}")
+                        # intent classification
+                        # INFERENCE
+                        pred = clf.predict([text])[0]
+                        print(f"{text} --> {pred}")
 
 
 
-                recognizer.Reset()
-                vad_iterator.reset_states()
-        
-        if isSpeaking:
-            speech_buffer.append(data)
+                    recognizer.Reset()
+                    vad_iterator.reset_states()
+            
+            if isSpeaking:
+                speech_buffer.append(data)
+        except KeyboardInterrupt:
+            print("Stopping recording...")
+            break
 
 
 
