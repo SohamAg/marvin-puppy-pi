@@ -54,8 +54,14 @@ clf = Pipeline([
     ("lr", LogisticRegression(max_iter=1000))
 ])
 clf.fit(X_train, y_train)
+
+# joblib.dump(clf,'speech_to_text/models/clf_pipeline.joblib')
+# clf = joblib.load('speech_to_text/models/clf_pipeline.joblib')
+
 y_pred = clf.predict(X_val)
 print("Accuracy:", accuracy_score(y_val, y_pred))
+
+
 
 
 #------------------------ Silero VAD Setup-----------------------------#
